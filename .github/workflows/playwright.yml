@@ -1,0 +1,72 @@
+name: Playwright Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # allows running it by hand from the Actions tab
+
+# Needed to publish the HTML report to GitHub Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# If a new push arrives, cancel the run that is still going for the same branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox
+
+      - name: Run Playwright tests
+        run: npx playwright test
+
+      # `if: always()` so the report is uploaded even when tests fail:
+      # that is exactly when you want to read it.
+      - name: Upload report as build artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload report for GitHub Pages
+        if: always()
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: playwright-report/
+
+  deploy-report:
+    # Only publish from main, not from pull requests.
+    if: always() && github.ref == 'refs/heads/main' && needs.test.result != 'cancelled'
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
